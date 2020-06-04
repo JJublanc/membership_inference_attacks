@@ -4,6 +4,8 @@ import collections
 from tensorflow_privacy.privacy.analysis import privacy_ledger
 from tensorflow_privacy.privacy.dp_query import gaussian_query
 
+from tensorflow.keras.callbacks import *
+
 import tensorflow as tf
 
 def make_optimizer_class(cls):
@@ -119,6 +121,7 @@ def make_gaussian_optimizer_class(cls):
         num_microbatches=None,
         ledger=None,
         unroll_microbatches=False,
+        learning_rate,
         *args,  # pylint: disable=keyword-arg-before-vararg
         **kwargs):
       dp_sum_query = gaussian_query.GaussianSumQuery(
@@ -140,3 +143,46 @@ def make_gaussian_optimizer_class(cls):
       return self._dp_sum_query.ledger
 
   return DPGaussianOptimizerClass
+
+
+class LearningRateScheduler_Perso(LearningRateScheduler):
+  def on_epoch_begin(self, epoch, logs=None):
+    print(dir(self.model.optimizer.optimizer.variables))
+    if hasattr(self.model.optimizer, 'lr'):
+        try:  # new API
+          lr = float(K.get_value(self.model.optimizer.lr))
+          lr = self.schedule(epoch, lr)
+        except TypeError:  # Support for old API for backward compatibility
+          lr = self.schedule(epoch)
+    elif hasattr(self.model.optimizer, '_learning_rate'):
+        try:  # new API
+          lr = float(K.get_value(self.model.optimizer._learning_rate))
+          lr = self.schedule(epoch, lr)
+        except TypeError:  # Support for old API for backward compatibility
+          lr = self.schedule(epoch)
+    else:
+        raise ValueError('Optimizer must have a "lr" or "_learning_rate" attribute.')
+        
+    if not isinstance(lr, (ops.Tensor, float, np.float32, np.float64)):
+      raise ValueError('The output of the "schedule" function '
+                       'should be float.')
+    if isinstance(lr, ops.Tensor) and not lr.dtype.is_floating:
+      raise ValueError('The dtype of Tensor should be float')
+    
+    if hasattr(self.model.optimizer, 'lr'):
+        K.set_value(self.model.optimizer.lr, K.get_value(lr))
+        if self.verbose > 0:
+          print('\nEpoch %05d: LearningRateScheduler reducing learning '
+                'rate to %s.' % (epoch + 1, lr))
+    elif hasattr(self.model.optimizer, '_learning_rate'):
+        K.set_value(self.model.optimizer.optimizer._learning_rate, K.get_value(learning_rate))
+        if self.verbose > 0:
+          print('\nEpoch %05d: LearningRateScheduler reducing learning '
+                'rate to %s.' % (epoch + 1, lr))
+
+  def on_epoch_end(self, epoch, logs=None):
+    logs = logs or {}
+    if hasattr(self.model.optimizer, 'lr'):
+        logs['lr'] = K.get_value(self.model.optimizer.lr)
+    if hasattr(self.model.optimizer, 'learning_rate'):
+        logs['lr'] = K.get_value(self.model.optimizer.optimizer._learning_rate)
