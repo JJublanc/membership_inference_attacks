@@ -8,6 +8,17 @@ from tensorflow.keras.callbacks import *
 
 import tensorflow as tf
 
+from tensorflow.python.keras import backend as K
+
+from tensorflow.python import ops
+from tensorflow.python.ops import array_ops
+from tensorflow.python.ops import control_flow_ops
+from tensorflow.python.ops import math_ops
+from tensorflow.python.ops import summary_ops_v2
+from tensorflow.python.ops import variables
+
+import numpy as np
+
 def make_optimizer_class(cls):
   """Constructs a DP optimizer class from an existing one."""
   parent_code = tf.compat.v1.train.Optimizer.compute_gradients.__code__
@@ -121,7 +132,6 @@ def make_gaussian_optimizer_class(cls):
         num_microbatches=None,
         ledger=None,
         unroll_microbatches=False,
-        learning_rate,
         *args,  # pylint: disable=keyword-arg-before-vararg
         **kwargs):
       dp_sum_query = gaussian_query.GaussianSumQuery(
@@ -145,18 +155,42 @@ def make_gaussian_optimizer_class(cls):
   return DPGaussianOptimizerClass
 
 
-class LearningRateScheduler_Perso(LearningRateScheduler):
+class LearningRateScheduler_Perso(Callback):
+  """Learning rate scheduler.
+  Arguments:
+      schedule: a function that takes an epoch index as input
+          (integer, indexed from 0) and returns a new
+          learning rate as output (float).
+      verbose: int. 0: quiet, 1: update messages.
+  ```python
+  # This function keeps the learning rate at 0.001 for the first ten epochs
+  # and decreases it exponentially after that.
+  def scheduler(epoch):
+    if epoch < 10:
+      return 0.001
+    else:
+      return 0.001 * tf.math.exp(0.1 * (10 - epoch))
+  callback = tf.keras.callbacks.LearningRateScheduler(scheduler)
+  model.fit(data, labels, epochs=100, callbacks=[callback],
+            validation_data=(val_data, val_labels))
+  ```
+  """
+
+  def __init__(self, schedule, verbose=0):
+    super(LearningRateScheduler_Perso, self).__init__()
+    self.schedule = schedule
+    self.verbose = verbose
+    
   def on_epoch_begin(self, epoch, logs=None):
-    print(dir(self.model.optimizer.optimizer.variables))
     if hasattr(self.model.optimizer, 'lr'):
         try:  # new API
           lr = float(K.get_value(self.model.optimizer.lr))
           lr = self.schedule(epoch, lr)
         except TypeError:  # Support for old API for backward compatibility
           lr = self.schedule(epoch)
-    elif hasattr(self.model.optimizer, '_learning_rate'):
+    elif hasattr(self.model.optimizer.optimizer, '_learning_rate'):
         try:  # new API
-          lr = float(K.get_value(self.model.optimizer._learning_rate))
+          lr = float(K.get_value(self.model.optimizer.optimizer._learning_rate))
           lr = self.schedule(epoch, lr)
         except TypeError:  # Support for old API for backward compatibility
           lr = self.schedule(epoch)
@@ -179,10 +213,11 @@ class LearningRateScheduler_Perso(LearningRateScheduler):
         if self.verbose > 0:
           print('\nEpoch %05d: LearningRateScheduler reducing learning '
                 'rate to %s.' % (epoch + 1, lr))
-
+        
   def on_epoch_end(self, epoch, logs=None):
     logs = logs or {}
     if hasattr(self.model.optimizer, 'lr'):
+        print(self.model.optimizer)
         logs['lr'] = K.get_value(self.model.optimizer.lr)
-    if hasattr(self.model.optimizer, 'learning_rate'):
+    elif hasattr(self.model.optimizer.optimizer, '_learning_rate'):
         logs['lr'] = K.get_value(self.model.optimizer.optimizer._learning_rate)
