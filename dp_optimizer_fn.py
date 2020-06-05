@@ -75,7 +75,7 @@ def make_optimizer_class(cls):
                           gradient_tape=None,
                           curr_noise_mult=0,
                           curr_norm_clip=1):
-
+      
       self._dp_sum_query = gaussian_query.GaussianSumQuery(curr_norm_clip, 
                                                            curr_norm_clip*curr_noise_mult)
       self._global_state = self._dp_sum_query.make_global_state(curr_norm_clip, 
@@ -136,7 +136,7 @@ def make_gaussian_optimizer_class(cls):
         **kwargs):
       dp_sum_query = gaussian_query.GaussianSumQuery(
           l2_norm_clip, l2_norm_clip * noise_multiplier)
-
+      print("noise multiplier : ", noise_multiplier, "l2 norm clip : ", l2_norm_clip)
       if ledger:
         dp_sum_query = privacy_ledger.QueryWithLedger(dp_sum_query,
                                                       ledger=ledger)
@@ -192,6 +192,7 @@ class LearningRateScheduler_Perso(Callback):
         try:  # new API
           lr = float(K.get_value(self.model.optimizer.optimizer._learning_rate))
           lr = self.schedule(epoch, lr)
+          print(lr)
         except TypeError:  # Support for old API for backward compatibility
           lr = self.schedule(epoch)
     else:
@@ -208,8 +209,9 @@ class LearningRateScheduler_Perso(Callback):
         if self.verbose > 0:
           print('\nEpoch %05d: LearningRateScheduler reducing learning '
                 'rate to %s.' % (epoch + 1, lr))
-    elif hasattr(self.model.optimizer, '_learning_rate'):
-        K.set_value(self.model.optimizer.optimizer._learning_rate, K.get_value(learning_rate))
+    elif hasattr(self.model.optimizer.optimizer, '_learning_rate'):
+        #K.set_value(self.model.optimizer.optimizer._learning_rate, tf.convert_to_tensor(lr))
+        self.model.optimizer.optimizer._learning_rate=lr
         if self.verbose > 0:
           print('\nEpoch %05d: LearningRateScheduler reducing learning '
                 'rate to %s.' % (epoch + 1, lr))
@@ -217,7 +219,6 @@ class LearningRateScheduler_Perso(Callback):
   def on_epoch_end(self, epoch, logs=None):
     logs = logs or {}
     if hasattr(self.model.optimizer, 'lr'):
-        print(self.model.optimizer)
         logs['lr'] = K.get_value(self.model.optimizer.lr)
     elif hasattr(self.model.optimizer.optimizer, '_learning_rate'):
         logs['lr'] = K.get_value(self.model.optimizer.optimizer._learning_rate)
